@@ -5,7 +5,7 @@ use std::error::Error;
 
 use crate::{
     ctx::{AddCtx, ReadCtx},
-    CmRDT, CvRDT, VClock,
+    CmRDT, CvRDT, DotRange, VClock,
 };
 
 struct Op<V, A: Ord> {
@@ -42,13 +42,22 @@ struct Chain<V, A: Ord + Clone> {
 }
 
 #[derive(Debug)]
-enum Validation<V: Debug, A: Debug + Ord> {
+enum Validation<V, A: Ord> {
     ReusedContext {
         ctx: VClock<A>,
         existing_value: V,
         op_value: V,
     },
+
+    MissingDotRange(DotRange<A>),
 }
+
+impl<V, A: Ord> From<DotRange<A>> for Validation<V, A> {
+    fn from(dot_range: DotRange<A>) -> Self {
+        Self::MissingDotRange(dot_range)
+    }
+}
+
 impl<V: Debug, A: Debug + Ord> Display for Validation<V, A> {
     fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         Debug::fmt(&self, fmt)
@@ -59,7 +68,6 @@ impl<V: Debug, A: Debug + Ord> Error for Validation<V, A> {}
 
 impl<V: Debug + Clone + Eq, A: Debug + Ord + Clone> CmRDT for Chain<V, A> {
     type Op = Op<V, A>;
-    /// The validation error returned by `validate_op`.
     type Validation = Validation<V, A>;
 
     fn validate_op(&self, op: &Self::Op) -> Result<(), Self::Validation> {
@@ -71,6 +79,10 @@ impl<V: Debug + Clone + Eq, A: Debug + Ord + Clone> CmRDT for Chain<V, A> {
                     op_value: op.value.clone(),
                 });
             }
+        }
+
+        for op_dot in op.ctx.clone().into_iter() {
+            self.clock.validate_op(&op_dot)?;
         }
 
         Ok(())
