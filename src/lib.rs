@@ -13,6 +13,9 @@
 mod traits;
 pub use crate::traits::{Actor, CmRDT, CvRDT, ResetRemove};
 
+/// This module contains a Chain CRDT
+pub mod chain;
+
 /// This module contains a Last-Write-Wins Register.
 pub mod lwwreg;
 
