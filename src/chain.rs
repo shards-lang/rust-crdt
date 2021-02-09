@@ -13,8 +13,14 @@ struct Op<V, A: Ord> {
     ctx: VClock<A>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Context<A: Ord>(VClock<A>);
+
+impl<A: Ord + Clone> PartialOrd for Context<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl<A: Ord + Clone> Ord for Context<A> {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -57,17 +63,14 @@ impl<V: Debug + Clone + Eq, A: Debug + Ord + Clone> CmRDT for Chain<V, A> {
     type Validation = Validation<V, A>;
 
     fn validate_op(&self, op: &Self::Op) -> Result<(), Self::Validation> {
-        match self.chain.get(&Context(op.ctx.clone())) {
-            Some(existing_value) => {
-                if existing_value != &op.value {
-                    return Err(Validation::ReusedContext {
-                        ctx: op.ctx.clone(),
-                        existing_value: existing_value.clone(),
-                        op_value: op.value.clone(),
-                    });
-                }
+        if let Some(existing_value) = self.chain.get(&Context(op.ctx.clone())) {
+            if existing_value != &op.value {
+                return Err(Validation::ReusedContext {
+                    ctx: op.ctx.clone(),
+                    existing_value: existing_value.clone(),
+                    op_value: op.value.clone(),
+                });
             }
-            None => (),
         }
 
         Ok(())
@@ -86,21 +89,21 @@ impl<V: Debug + Clone + Eq, A: Debug + Ord + Clone> CmRDT for Chain<V, A> {
 }
 
 impl<V: Eq, A: Ord + Clone> Chain<V, A> {
-    fn append(&self, v: impl Into<V>, ctx: AddCtx<A>) -> Op<V, A> {
+    pub fn append(&self, v: impl Into<V>, ctx: AddCtx<A>) -> Op<V, A> {
         Op {
             value: v.into(),
             ctx: ctx.clock,
         }
     }
 
-    fn value_ctx(&self, v: &V) -> Option<VClock<A>> {
+    pub fn value_ctx(&self, v: &V) -> Option<VClock<A>> {
         self.chain
             .iter()
             .find(|(_, value)| value == &v)
             .map(|(ctx, _)| ctx.0.clone())
     }
 
-    fn read(&self) -> ReadCtx<Vec<&V>, A> {
+    pub fn read(&self) -> ReadCtx<Vec<&V>, A> {
         ReadCtx {
             add_clock: self.clock.clone(),
             rm_clock: self.clock.clone(),
