@@ -31,7 +31,15 @@ impl<A: Ord + Clone> Ord for Context<A> {
             None => {
                 let self_without_other = self.0.clone_without(&other.0);
                 let other_without_self = other.0.clone_without(&self.0);
-                self_without_other.dots.cmp(&other_without_self.dots)
+
+                let largest_self = self_without_other.dots.keys().rev().next();
+                let largest_other = other_without_self.dots.keys().rev().next();
+                match (largest_self, largest_other) {
+                    (Some(self_actor), Some(other_actor)) => self_actor.cmp(&other_actor),
+                    (Some(_), None) => Ordering::Greater,
+                    (None, Some(_)) => Ordering::Less,
+                    (None, None) => Ordering::Equal,
+                }
             }
         }
     }
@@ -227,6 +235,62 @@ mod test {
         assert_eq!(chain_b.read().val, vec![&0, &1]);
     }
 
+    #[test]
+    fn test_qc_stress_context_total_order() {
+        let mut chain_a: Chain<u8, _> = Default::default();
+        let mut chain_b: Chain<u8, _> = Default::default();
+        let mut chain_c: Chain<u8, _> = Default::default();
+
+        let append_from_b = chain_b.append(0, chain_b.read().derive_add_ctx('B'));
+        let append_from_c = chain_c.append(1, chain_c.read().derive_add_ctx('C'));
+
+        assert_eq!(chain_a.validate_op(&append_from_c), Ok(()));
+        chain_a.apply(append_from_c.clone());
+        assert_eq!(chain_a.read().val, vec![&1]);
+
+        let append_from_a = chain_a.append(2, chain_a.read().derive_add_ctx('A'));
+
+        assert_eq!(chain_a.validate_op(&append_from_a), Ok(()));
+        chain_a.apply(append_from_a.clone());
+        assert_eq!(chain_a.read().val, vec![&1, &2]);
+
+        assert_eq!(chain_a.validate_op(&append_from_b), Ok(()));
+        chain_a.apply(append_from_b.clone());
+        assert_eq!(chain_a.read().val, vec![&0, &1, &2]);
+
+        assert_eq!(chain_b.validate_op(&append_from_a), Ok(()));
+        chain_b.apply(append_from_a.clone());
+        assert_eq!(chain_b.read().val, vec![&2]);
+
+        assert_eq!(chain_b.validate_op(&append_from_b), Ok(()));
+        chain_b.apply(append_from_b.clone());
+        assert_eq!(chain_b.read().val, vec![&0, &2]);
+
+        assert_eq!(chain_b.validate_op(&append_from_c), Ok(()));
+        chain_b.apply(append_from_c.clone());
+        assert_eq!(chain_b.read().val, vec![&0, &1, &2]);
+
+        assert_eq!(chain_c.validate_op(&append_from_a), Ok(()));
+        chain_c.apply(append_from_a);
+        assert_eq!(chain_c.read().val, vec![&2]);
+
+        assert_eq!(chain_c.validate_op(&append_from_b), Ok(()));
+        chain_c.apply(append_from_b);
+        assert_eq!(chain_c.read().val, vec![&0, &2]);
+
+        assert_eq!(chain_c.validate_op(&append_from_c), Ok(()));
+        chain_c.apply(append_from_c);
+        assert_eq!(chain_c.read().val, vec![&0, &1, &2]);
+
+        assert_eq!(chain_a, chain_b);
+        assert_eq!(chain_a, chain_c);
+        assert_eq!(chain_b, chain_c);
+
+        assert_eq!(chain_a.read().val, vec![&0, &1, &2]);
+        assert_eq!(chain_b.read().val, vec![&0, &1, &2]);
+        assert_eq!(chain_c.read().val, vec![&0, &1, &2]);
+    }
+
     #[derive(Debug, Clone)]
     enum Instruction {
         Append { actor: u8, val: u8 },
@@ -338,6 +402,7 @@ mod test {
             for (dest_actor, op_queue) in op_queues {
                 for (_source, queue) in op_queue {
                     for op in queue {
+                        assert_eq!(chains[dest_actor].validate_op(&op), Ok(()));
                         chains[dest_actor].apply(op);
                     }
                 }
@@ -368,11 +433,29 @@ mod test {
                 assert!(a.concurrent(&b));
                 let a_without_b = a.clone_without(&b);
                 let b_without_a = b.clone_without(&a);
-                let a_dot = a_without_b.into_iter().next().unwrap();
-                let b_dot = b_without_a.into_iter().next().unwrap();
+                let a_dot = a_without_b.into_iter().last().unwrap();
+                let b_dot = b_without_a.into_iter().last().unwrap();
                 assert_eq!(a_dot.actor.cmp(&b_dot.actor), ordering)
             }
             true
+        }
+
+        fn prop_context_transitive(a: VClock<u8>, b: VClock<u8>, c: VClock<u8>) -> TestResult {
+            let a = Context(a);
+            let b = Context(b);
+            let c = Context(c);
+
+            if a < b && b < c {
+                assert!(a < c);
+            }
+            if a == b && b == c {
+                assert!(a == c);
+            }
+            if a > b && b > c {
+                assert!(a > c);
+            }
+
+            TestResult::passed()
         }
     }
 }
