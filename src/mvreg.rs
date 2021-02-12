@@ -182,10 +182,9 @@ impl<V, A: Ord + Clone + fmt::Debug> MVReg<V, A> {
 
     /// Set the value of the register
     pub fn write(&self, val: V, ctx: AddCtx<A>) -> Op<V, A> {
-        Op::Put {
-            clock: ctx.clock,
-            val,
-        }
+        let AddCtx { mut clock, actor } = ctx;
+        clock.apply(clock.inc(actor));
+        Op::Put { clock, val }
     }
 
     /// Consumes the register and returns the values
