@@ -126,11 +126,12 @@ impl<V: Eq, A: Ord + Clone + Debug> Chain<V, A> {
         }
     }
 
-    pub fn value_ctx(&self, v: &V) -> Option<VClock<A>> {
-        self.chain
-            .iter()
-            .find(|(_, value)| value == &v)
-            .map(|(ctx, _)| ctx.0.clone())
+    pub fn iter(&self) -> impl Iterator<Item = ReadCtx<&V, A>> {
+        self.chain.iter().map(move |(ctx, val)| ReadCtx {
+            add_clock: self.context_clock.clone(),
+            rm_clock: ctx.0.clone(),
+            val,
+        })
     }
 
     pub fn read(&self) -> ReadCtx<Vec<&V>, A> {
@@ -398,7 +399,6 @@ mod test {
                 }
             }
 
-            println!("Draining op queues {:#?}", op_queues);
             for (dest_actor, op_queue) in op_queues {
                 for (_source, queue) in op_queue {
                     for op in queue {
