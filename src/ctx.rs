@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{CmRDT, Dot, VClock};
+use crate::VClock;
 
 /// ReadCtx's are used to extract data from CRDT's while maintaining some causal history.
 /// You should store ReadCtx's close to where mutation is exposed to the user.
