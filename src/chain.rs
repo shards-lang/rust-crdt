@@ -34,12 +34,7 @@ impl<A: Ord + Clone> Ord for Context<A> {
 
                 let largest_self = self_without_other.dots.keys().rev().next();
                 let largest_other = other_without_self.dots.keys().rev().next();
-                match (largest_self, largest_other) {
-                    (Some(self_actor), Some(other_actor)) => self_actor.cmp(&other_actor),
-                    (Some(_), None) => Ordering::Greater,
-                    (None, Some(_)) => Ordering::Less,
-                    (None, None) => Ordering::Equal,
-                }
+                largest_self.cmp(&largest_other)
             }
         }
     }
