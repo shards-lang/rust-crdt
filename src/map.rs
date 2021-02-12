@@ -366,7 +366,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
         F: FnOnce(&V, AddCtx<A>) -> V::Op,
     {
         let key = key.into();
-        let dot = ctx.dot.clone();
+        let dot = ctx.clock.inc(ctx.actor.clone());
         let op = match self.entries.get(&key).map(|e| &e.val) {
             Some(data) => f(&data, ctx),
             None => f(&V::default(), ctx),

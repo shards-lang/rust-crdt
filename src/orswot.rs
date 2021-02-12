@@ -243,7 +243,7 @@ impl<M: Hash + Clone + Eq, A: Ord + Hash + Clone> Orswot<M, A> {
     /// Add a single element.
     pub fn add(&self, member: M, ctx: AddCtx<A>) -> Op<M, A> {
         Op::Add {
-            dot: ctx.dot,
+            dot: ctx.clock.inc(ctx.actor),
             members: std::iter::once(member).collect(),
         }
     }
@@ -251,7 +251,7 @@ impl<M: Hash + Clone + Eq, A: Ord + Hash + Clone> Orswot<M, A> {
     /// Add multiple elements.
     pub fn add_all<I: IntoIterator<Item = M>>(&self, members: I, ctx: AddCtx<A>) -> Op<M, A> {
         Op::Add {
-            dot: ctx.dot,
+            dot: ctx.clock.inc(ctx.actor),
             members: members.into_iter().collect(),
         }
     }

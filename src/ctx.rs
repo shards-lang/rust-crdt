@@ -27,8 +27,8 @@ pub struct AddCtx<A: Ord> {
     /// The adding vclock context
     pub clock: VClock<A>,
 
-    /// The Actor and the Actor's version at the time of the add
-    pub dot: Dot<A>,
+    /// The Actor who is adding with this context
+    pub actor: A,
 }
 
 /// RmCtx is used for mutations that remove information from a CRDT
@@ -41,16 +41,13 @@ pub struct RmCtx<A: Ord> {
 impl<V, A: Ord + Clone + Debug> ReadCtx<V, A> {
     /// Derives an AddCtx for a given actor from a ReadCtx
     pub fn derive_add_ctx(self, actor: A) -> AddCtx<A> {
-        let mut clock = self.add_clock;
-        let dot = clock.inc(actor);
-        clock.apply(dot.clone());
-        AddCtx { clock, dot }
+        let clock = self.add_clock;
+        AddCtx { clock, actor }
     }
 
     /// Derives a RmCtx from a ReadCtx
     pub fn derive_rm_ctx(self) -> RmCtx<A> {
-        RmCtx {
-            clock: self.rm_clock,
-        }
+        let clock = self.rm_clock;
+        RmCtx { clock }
     }
 }
