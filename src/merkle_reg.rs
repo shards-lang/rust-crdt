@@ -1,6 +1,7 @@
 use core::convert::Infallible;
 use core::fmt;
 use std::collections::{BTreeMap, BTreeSet};
+use std::iter::FromIterator;
 
 use quickcheck::{Arbitrary, Gen};
 use serde::{Deserialize, Serialize};
@@ -212,7 +213,7 @@ impl<T: Sha3Hash> CmRDT for MerkleReg<T> {
                 self.roots.remove(child);
             }
 
-            // Since we have never seen this node before, it's guaranteed to be a root.
+            // Since we have not seen this node before, it's guaranteed to be a root.
             self.roots.insert(node_hash);
 
             // It is now safe to insert this node into the DAG since we've seen its children.
@@ -220,13 +221,12 @@ impl<T: Sha3Hash> CmRDT for MerkleReg<T> {
 
             // Now check if inserting this node resolves any orphans nodes.
             // TODO: replace this logic with BTreeMap::drain_filter once it's stable.
-            let hashes_that_are_now_ready_to_apply = self
-                .orphans
-                .iter()
-                .filter(|(_, node)| self.all_hashes_seen(&node.children))
-                .map(|(hash, _)| hash)
-                .copied()
-                .collect::<Vec<_>>();
+            let hashes_that_are_now_ready_to_apply = Vec::from_iter(
+                self.orphans
+                    .iter()
+                    .filter(|(_, node)| self.all_hashes_seen(&node.children))
+                    .map(|(hash, _)| *hash),
+            );
 
             let mut nodes_to_apply = Vec::new();
             for hash in hashes_that_are_now_ready_to_apply {
