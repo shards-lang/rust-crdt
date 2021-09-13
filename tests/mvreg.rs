@@ -1,6 +1,6 @@
 use crdts::{mvreg::Op, *};
 
-use quickcheck::TestResult;
+use quickcheck::{quickcheck, TestResult};
 
 #[derive(Debug, Clone)]
 struct TestReg {

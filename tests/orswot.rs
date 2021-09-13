@@ -2,6 +2,7 @@ extern crate crdts;
 extern crate rand;
 
 use crdts::{ctx::ReadCtx, orswot::Op, *};
+use quickcheck::quickcheck;
 use std::collections::HashSet;
 use std::iter::once;
 

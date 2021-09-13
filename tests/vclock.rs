@@ -1,5 +1,6 @@
 use crdts::*;
 
+use quickcheck::quickcheck;
 use std::cmp::Ordering;
 
 quickcheck! {

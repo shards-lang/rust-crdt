@@ -1,5 +1,5 @@
 use crdts::{map, mvreg, CmRDT, CvRDT, Dot, DotRange, MVReg, Map, ResetRemove, VClock};
-use quickcheck::TestResult;
+use quickcheck::{quickcheck, TestResult};
 
 type TActor = u8;
 type TKey = u8;
