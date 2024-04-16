@@ -173,12 +173,16 @@ impl<K: Ord, V: Val<A> + Debug, A: Ord + Hash + Clone + Debug> CmRDT for Map<K, 
                 self.clock
                     .validate_op(dot)
                     .map_err(CmRDTValidation::SourceOrder)?;
-                let entry = self.entries.get(key).cloned().unwrap_or_default();
-                entry
-                    .clock
-                    .validate_op(dot)
-                    .map_err(CmRDTValidation::SourceOrder)?;
-                entry.val.validate_op(op).map_err(CmRDTValidation::Value)
+                // we cannot evaluate the order of an entry that does not exist yet
+                if let Some(entry) = self.entries.get(key) {
+                    entry
+                        .clock
+                        .validate_op(dot)
+                        .map_err(CmRDTValidation::SourceOrder)?;
+                    entry.val.validate_op(op).map_err(CmRDTValidation::Value)
+                } else {
+                    Ok(())
+                }
             }
         }
     }
