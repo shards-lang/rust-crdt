@@ -92,9 +92,9 @@ fn gen_map() -> Map<String, MVReg<u64, String>, String> {
 
     m.apply(m.update("height", add_ctx_alice, |reg, a| reg.write(156, a)));
 
-    assert_eq!(m.get(&"age".into()).val.unwrap().read().val, vec![34]);
+    assert_eq!(m.get(&"age".into()).unwrap().read().val, vec![34]);
     assert_eq!(
-        m.get(&"height".into()).val.unwrap().read().val,
+        m.get(&"height".into()).unwrap().read().val,
         vec![152, 156]
     );
     m

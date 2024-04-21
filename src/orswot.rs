@@ -300,7 +300,7 @@ impl<M: Hash + Clone + Eq, A: Ord + Hash + Clone> Orswot<M, A> {
         let exists = member_clock_opt.is_some();
         ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: member_clock_opt.cloned().unwrap_or_default(),
+            rm_clock: Some(member_clock_opt.cloned().unwrap_or_default()),
             val: exists,
         }
     }
@@ -334,7 +334,7 @@ impl<M: Hash + Clone + Eq, A: Ord + Hash + Clone> Orswot<M, A> {
     pub fn iter(&self) -> impl Iterator<Item = ReadCtx<&M, A>> {
         self.entries.iter().map(move |(m, clock)| ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: clock.clone(),
+            rm_clock: Some(clock.clone()),
             val: m,
         })
     }
@@ -343,7 +343,7 @@ impl<M: Hash + Clone + Eq, A: Ord + Hash + Clone> Orswot<M, A> {
     pub fn read(&self) -> ReadCtx<HashSet<M>, A> {
         ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: self.clock.clone(),
+            rm_clock: None,
             val: self.entries.keys().cloned().collect(),
         }
     }
@@ -352,7 +352,7 @@ impl<M: Hash + Clone + Eq, A: Ord + Hash + Clone> Orswot<M, A> {
     pub fn read_ctx(&self) -> ReadCtx<(), A> {
         ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: self.clock.clone(),
+            rm_clock: None,
             val: (),
         }
     }

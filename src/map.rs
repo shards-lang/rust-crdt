@@ -32,10 +32,10 @@ where
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Map<K: Ord, V: Val<A>, A: Ord + Hash> {
     // This clock stores the current version of the Map, it should
-    // be greator or equal to all Entry.clock's in the Map.
+    // be greater or equal to all Entry.clock's in the Map.
     clock: VClock<A>,
     entries: BTreeMap<K, Entry<V, A>>,
-    deferred: HashMap<VClock<A>, BTreeSet<K>>,
+    deferred: HashMap<VClock<A>, K>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,7 +55,7 @@ pub enum Op<K: Ord, V: Val<A>, A: Ord> {
         /// The clock under which we will perform this remove
         clock: VClock<A>,
         /// Key to remove
-        keyset: BTreeSet<K>,
+        key: K,
     },
     /// Update an entry in the map
     Up {
@@ -175,10 +175,10 @@ impl<K: Ord, V: Val<A> + Debug, A: Ord + Hash + Clone + Debug> CmRDT for Map<K, 
                     .map_err(CmRDTValidation::SourceOrder)?;
                 // we cannot evaluate the order of an entry that does not exist yet
                 if let Some(entry) = self.entries.get(key) {
-                    entry
-                        .clock
-                        .validate_op(dot)
-                        .map_err(CmRDTValidation::SourceOrder)?;
+                    // entry
+                    //     .clock
+                    //     .validate_op(dot)
+                    //     .map_err(CmRDTValidation::SourceOrder)?;
                     entry.val.validate_op(op).map_err(CmRDTValidation::Value)
                 } else {
                     Ok(())
@@ -189,7 +189,7 @@ impl<K: Ord, V: Val<A> + Debug, A: Ord + Hash + Clone + Debug> CmRDT for Map<K, 
 
     fn apply(&mut self, op: Self::Op) {
         match op {
-            Op::Rm { clock, keyset } => self.apply_keyset_rm(keyset, clock),
+            Op::Rm { clock, key } => self.apply_key_rm(key, clock),
             Op::Up { dot, key, op } => {
                 if self.clock.get(&dot.actor) >= dot.counter {
                     // we've seen this op already
@@ -309,8 +309,8 @@ impl<K: Ord + Clone + Debug, V: Val<A> + CvRDT + Debug, A: Ord + Hash + Clone + 
         }
 
         // merge deferred removals
-        for (rm_clock, keys) in other.deferred {
-            self.apply_keyset_rm(keys, rm_clock);
+        for (rm_clock, key) in other.deferred {
+            self.apply_key_rm(key, rm_clock);
         }
 
         self.clock.merge(other.clock);
@@ -325,35 +325,25 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
         Default::default()
     }
 
+    /// Returns the clock of the Map
+    pub fn clock(&self) -> &VClock<A> {
+        &self.clock
+    }
+
     /// Returns true if the map has no entries, false otherwise
-    pub fn is_empty(&self) -> ReadCtx<bool, A> {
-        ReadCtx {
-            add_clock: self.clock.clone(),
-            rm_clock: self.clock.clone(),
-            val: self.entries.is_empty(),
-        }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     /// Returns the number of entries in the Map
-    pub fn len(&self) -> ReadCtx<usize, A> {
-        ReadCtx {
-            add_clock: self.clock.clone(),
-            rm_clock: self.clock.clone(),
-            val: self.entries.len(),
-        }
+    pub fn len(&self) -> usize {
+        self.entries.len()
     }
 
     /// Retrieve value stored under a key
-    pub fn get(&self, key: &K) -> ReadCtx<Option<V>, A> {
-        let add_clock = self.clock.clone();
+    pub fn get(&self, key: &K) -> Option<&V> {
         let entry_opt = self.entries.get(key);
-        ReadCtx {
-            add_clock,
-            rm_clock: entry_opt
-                .map(|map_entry| map_entry.clock.clone())
-                .unwrap_or_default(),
-            val: entry_opt.map(|map_entry| map_entry.val.clone()),
-        }
+        entry_opt.map(|entry| &entry.val)
     }
 
     /// Update a value under some key.
@@ -385,11 +375,9 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     /// can easily convert to the `Map`'s key. For example, we can call this function
     /// with `"hello": &str` and it can be converted to `String`.
     pub fn rm(&self, key: impl Into<K>, ctx: RmCtx<A>) -> Op<K, V, A> {
-        let mut keyset = BTreeSet::new();
-        keyset.insert(key.into());
         Op::Rm {
             clock: ctx.clock,
-            keyset,
+            key: key.into(),
         }
     }
 
@@ -397,7 +385,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     pub fn read_ctx(&self) -> ReadCtx<(), A> {
         ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: self.clock.clone(),
+            rm_clock: None,
             val: (),
         }
     }
@@ -405,27 +393,25 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     /// apply the pending deferred removes
     fn apply_deferred(&mut self) {
         let deferred = mem::take(&mut self.deferred);
-        for (clock, keys) in deferred {
-            self.apply_keyset_rm(keys, clock);
+        for (clock, key) in deferred {
+            self.apply_key_rm(key, clock);
         }
     }
 
     /// Apply a set of key removals given a clock.
-    fn apply_keyset_rm(&mut self, mut keyset: BTreeSet<K>, clock: VClock<A>) {
-        for key in keyset.iter() {
-            if let Some(entry) = self.entries.get_mut(key) {
+    fn apply_key_rm(&mut self, key: K, clock: VClock<A>) {
+            if let Some(entry) = self.entries.get_mut(&key) {
                 entry.clock.reset_remove(&clock);
                 if entry.clock.is_empty() {
                     // The entry clock says we have no info on this entry.
                     // So remove the entry
-                    self.entries.remove(key);
+                    self.entries.remove(&key);
                 } else {
                     // The entry clock is not empty so this means we still
                     // have some information on this entry, keep it.
                     entry.val.reset_remove(&clock);
                 }
             }
-        }
 
         // now we need to decide wether we should be keeping this
         // remove Op around to remove entries we haven't seen yet.
@@ -435,8 +421,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
                 // we need to log this in our deferred remove map, so
                 // that we can delete keys that we haven't seen yet but
                 // have been seen by this clock
-                let deferred_set = self.deferred.entry(clock).or_default();
-                deferred_set.append(&mut keyset);
+                self.deferred.insert(clock.clone(), key);
             }
             _ => { /* we've seen all keys this clock has seen */ }
         }
@@ -477,7 +462,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     pub fn keys(&self) -> impl Iterator<Item = ReadCtx<&K, A>> {
         self.entries.iter().map(move |(k, v)| ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: v.clock.clone(),
+            rm_clock: Some(v.clock.clone()),
             val: k,
         })
     }
@@ -520,7 +505,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     pub fn values(&self) -> impl Iterator<Item = ReadCtx<&V, A>> {
         self.entries.values().map(move |v| ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: v.clock.clone(),
+            rm_clock: Some(v.clock.clone()),
             val: &v.val,
         })
     }
@@ -563,7 +548,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     pub fn iter(&self) -> impl Iterator<Item = ReadCtx<(&K, &V), A>> {
         self.entries.iter().map(move |(k, v)| ReadCtx {
             add_clock: self.clock.clone(),
-            rm_clock: v.clock.clone(),
+            rm_clock: Some(v.clock.clone()),
             val: (k, &v.val),
         })
     }
@@ -584,7 +569,7 @@ mod test {
     fn test_get() {
         let mut m: TestMap = Map::new();
 
-        assert_eq!(m.get(&0).val, None);
+        assert_eq!(m.get(&0), None);
 
         m.clock.apply(m.clock.inc(1));
 
@@ -596,7 +581,8 @@ mod test {
             },
         );
 
-        assert_eq!(m.get(&0).val, Some(Map::new()));
+        let empty_map = Map::new();
+        assert_eq!(m.get(&0), Some(&empty_map));
     }
 
     #[test]
@@ -618,12 +604,12 @@ mod test {
             key: 9,
             op: Op::Rm {
                 clock: Dot::new(1, 1).into(),
-                keyset: vec![0].into_iter().collect(),
+                key: 0,
             },
         };
         let op_2_actor2 = Op::Rm {
             clock: Dot::new(1, 2).into(),
-            keyset: vec![9].into_iter().collect(),
+            key: 9,
         };
 
         let mut m1: TestMap = Map::new();
@@ -640,7 +626,7 @@ mod test {
         assert_eq!(m2.entries.get(&9), None);
         assert_eq!(
             m2.deferred.get(&Dot::new(1, 2).into()),
-            Some(&vec![9].into_iter().collect())
+            Some(&9u8)
         );
 
         // m1 <- m2

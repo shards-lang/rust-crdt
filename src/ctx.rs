@@ -15,7 +15,8 @@ pub struct ReadCtx<V, A: Ord> {
     pub add_clock: VClock<A>,
 
     /// clock used to derive an RmCtx
-    pub rm_clock: VClock<A>,
+    /// Optional, because most of the time would be a copy of add_clock
+    pub rm_clock: Option<VClock<A>>,
 
     /// the data read from the CRDT
     pub val: V,
@@ -49,8 +50,12 @@ impl<V, A: Ord + Clone + Debug> ReadCtx<V, A> {
 
     /// Derives a RmCtx from a ReadCtx
     pub fn derive_rm_ctx(self) -> RmCtx<A> {
-        RmCtx {
-            clock: self.rm_clock,
+        if let Some(rm_clock) = self.rm_clock {
+            RmCtx { clock: rm_clock }
+        } else {
+            RmCtx {
+                clock: self.add_clock.clone(),
+            }
         }
     }
 

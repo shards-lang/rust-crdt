@@ -199,8 +199,8 @@ impl<V, A: Ord + Clone + Debug> MVReg<V, A> {
         let concurrent_vals = self.vals.iter().cloned().map(|(_, v)| v).collect();
 
         ReadCtx {
-            add_clock: clock.clone(),
-            rm_clock: clock,
+            add_clock: clock,
+            rm_clock: None,
             val: concurrent_vals,
         }
     }
@@ -209,8 +209,8 @@ impl<V, A: Ord + Clone + Debug> MVReg<V, A> {
     pub fn read_ctx(&self) -> ReadCtx<(), A> {
         let clock = self.clock();
         ReadCtx {
-            add_clock: clock.clone(),
-            rm_clock: clock,
+            add_clock: clock,
+            rm_clock: None,
             val: (),
         }
     }

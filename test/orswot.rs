@@ -34,15 +34,16 @@ fn adds_dont_destroy_causality() {
 
     // If we want to remove this entry, the remove context
     // should descend from vclock { 1->1, 2->1 }
+    let rm_clock =  c_element_ctx.rm_clock.unwrap();
     assert_eq!(
-        c_element_ctx.rm_clock,
+        rm_clock.clone(),
         vec![Dot::new("A", 1), Dot::new("B", 1)]
             .into_iter()
             .collect()
     );
 
     a.apply(a.add("element", a.read().derive_add_ctx("C")));
-    b.apply(c.rm("element", c_element_ctx.derive_rm_ctx()));
+    b.apply(c.rm("element", c.read_ctx().derive_rm_ctx()));
     a.apply(a.add("element", a.read().derive_add_ctx("A")));
 
     a.merge(b);
@@ -67,7 +68,7 @@ fn merge_clocks_of_identical_entries() {
     final_clock.apply(final_clock.inc("A"));
     final_clock.apply(final_clock.inc("B"));
     assert!(a.contains(&1).val);
-    assert_eq!(a.contains(&1).rm_clock, final_clock);
+    assert_eq!(a.contains(&1).rm_clock.unwrap(), final_clock);
 }
 
 // port from riak_dt
@@ -155,7 +156,7 @@ fn test_dead_node_update() {
     );
 
     a.apply(a_op);
-    assert_eq!(a.contains(&0).rm_clock, VClock::from(Dot::new("A", 1)));
+    assert_eq!(a.contains(&0).rm_clock.unwrap(), VClock::from(Dot::new("A", 1)));
 
     let mut b = a.clone();
     b.apply(b.add(1, b.read().derive_add_ctx("B")));
@@ -176,23 +177,23 @@ fn test_reset_remove_semantics() {
     let mut m1: Map<u8, Orswot<Member, &str>, &str> = Map::new();
 
     m1.apply(
-        m1.update(101, m1.get(&101).derive_add_ctx("A"), |set, ctx| {
+        m1.update(101, m1.read_ctx().derive_add_ctx("A"), |set, ctx| {
             set.add(1, ctx)
         }),
     );
 
     let mut m2 = m1.clone();
 
-    m1.apply(m1.rm(101, m1.get(&101).derive_rm_ctx()));
+    m1.apply(m1.rm(101, m1.read_ctx().derive_rm_ctx()));
     m2.apply(
-        m2.update(101, m2.get(&101).derive_add_ctx("B"), |set, ctx| {
+        m2.update(101, m2.read_ctx().derive_add_ctx("B"), |set, ctx| {
             set.add(2, ctx)
         }),
     );
 
-    assert_eq!(m1.get(&101).val, None);
+    assert_eq!(m1.get(&101), None);
     assert_eq!(
-        m2.get(&101).val.unwrap().read().val,
+        m2.get(&101).unwrap().read().val,
         vec![1, 2].into_iter().collect()
     );
 
@@ -201,7 +202,7 @@ fn test_reset_remove_semantics() {
 
     assert_eq!(m1, m2);
     assert_eq!(
-        m1.get(&101).val.unwrap().read().val,
+        m1.get(&101).unwrap().read().val,
         vec![2].into_iter().collect()
     );
 }
@@ -294,7 +295,7 @@ mod prop_tests {
 
             for ReadCtx { val, rm_clock, .. } in orswot_1.iter() {
                 if !merged_members.contains(val) {
-                    let mut val_clock = rm_clock.clone();
+                    let mut val_clock = rm_clock.unwrap().clone();
                     for op in ops_2.iter() {
                         match op {
                             Op::Rm { clock, .. } => val_clock.reset_remove(clock),
@@ -311,7 +312,7 @@ mod prop_tests {
 
             for ReadCtx { val, rm_clock, .. } in orswot_2.iter() {
                 if !merged_members.contains(val) {
-                    let mut val_clock = rm_clock.clone();
+                    let mut val_clock = rm_clock.clone().unwrap();
                     for op in ops_1.iter() {
                         match op {
                             Op::Rm { clock, .. } => val_clock.reset_remove(clock),
