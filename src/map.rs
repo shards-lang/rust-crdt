@@ -400,18 +400,18 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
 
     /// Apply a set of key removals given a clock.
     fn apply_key_rm(&mut self, key: K, clock: VClock<A>) {
-            if let Some(entry) = self.entries.get_mut(&key) {
-                entry.clock.reset_remove(&clock);
-                if entry.clock.is_empty() {
-                    // The entry clock says we have no info on this entry.
-                    // So remove the entry
-                    self.entries.remove(&key);
-                } else {
-                    // The entry clock is not empty so this means we still
-                    // have some information on this entry, keep it.
-                    entry.val.reset_remove(&clock);
-                }
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.clock.reset_remove(&clock);
+            if entry.clock.is_empty() {
+                // The entry clock says we have no info on this entry.
+                // So remove the entry
+                self.entries.remove(&key);
+            } else {
+                // The entry clock is not empty so this means we still
+                // have some information on this entry, keep it.
+                entry.val.reset_remove(&clock);
             }
+        }
 
         // now we need to decide wether we should be keeping this
         // remove Op around to remove entries we haven't seen yet.
@@ -552,6 +552,89 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
             val: (k, &v.val),
         })
     }
+
+    /// Returns the difference between two CRDTs given the other CRDT's clock.
+    pub fn diff(&self, other_clock: &VClock<A>) -> Map<K, V, A>
+    where
+        K: Clone + Debug,
+        V: Clone + Debug,
+        A: Debug,
+    {
+        let mut map: Map<K, V, A> = Map::new();
+
+        println!("self: {:?}", self);
+        println!("self clock: {:?}", self.clock);
+        println!("other clock: {:?}", other_clock);
+        let mut clock = self.clock.clone();
+        // apply the glb operation to the clock
+        // to preserve just common information
+        clock.glb(other_clock);
+        println!("diff clock: {:?}", clock);
+
+        // go thru the entries of the map
+        for (key, entry) in self.entries.iter() {
+            println!("entry: {:?}", entry);
+            // if the entry clock is less than the diff clock
+            // then we can add the entry to the diff map
+            if entry.clock <= clock {
+                // the other map is aware of this entry
+            } else {
+                map.entries.insert(key.clone(), entry.clone());
+                // in theory we should do more here such as nested diff
+                // but we are not going to do that for now
+            }
+        }
+
+        // merge clocks
+        map.clock = self.clock.clone();
+        map.clock.merge(other_clock.clone());
+
+        println!("diff: {:?}", map);
+
+        map
+    }
+
+    /// Function to merge a delta state into the current state
+    pub fn merge_delta(&mut self, delta: Self)
+    where
+        VClock<A>: CvRDT,
+        V: Val<A> + CvRDT + Debug,
+    {
+        for (key, delta_entry) in delta.entries {
+            let entry = self.entries.entry(key);
+            match entry {
+                std::collections::btree_map::Entry::Vacant(e) => {
+                    // The entry does not exist in the current map
+                    if self.clock >= delta_entry.clock {
+                        // We have seen this entry and dropped it, do nothing
+                    } else {
+                        // Entry is new to us, integrate it
+                        e.insert(delta_entry);
+                    }
+                }
+                std::collections::btree_map::Entry::Occupied(mut e) => {
+                    let our_entry = e.get_mut();
+                    if delta_entry.clock.concurrent(&our_entry.clock) {
+                        // There's concurrency, merge the values
+                        our_entry.val.merge(delta_entry.val);
+                        our_entry.clock.merge(delta_entry.clock);
+                    } else if delta_entry.clock > our_entry.clock {
+                        // The delta entry is more recent, replace ours
+                        *our_entry = delta_entry;
+                    }
+                    // If our entry is more recent, do nothing
+                }
+            }
+        }
+
+        // Process any deferred removals from the delta
+        for (rm_clock, key) in delta.deferred {
+            self.apply_key_rm(key, rm_clock);
+        }
+
+        // Update the overall clock
+        self.clock.merge(delta.clock);
+    }
 }
 
 #[cfg(test)]
@@ -624,10 +707,7 @@ mod test {
         m2.apply(op_2_actor2.clone());
         assert_eq!(m2.clock, Dot::new(1, 1).into());
         assert_eq!(m2.entries.get(&9), None);
-        assert_eq!(
-            m2.deferred.get(&Dot::new(1, 2).into()),
-            Some(&9u8)
-        );
+        assert_eq!(m2.deferred.get(&Dot::new(1, 2).into()), Some(&9u8));
 
         // m1 <- m2
         m1.apply(op_1_actor2);
@@ -699,5 +779,200 @@ mod test {
         m2.merge(m1.clone());
 
         assert_eq!(m1, m2);
+    }
+
+    #[test]
+    fn test_diff() {
+        let mut m1: TestMap = Map::new();
+        let mut m2: TestMap = Map::new();
+
+        m1.clock.apply(m1.clock.inc(1));
+        m2.clock.apply(m2.clock.inc(1));
+
+        m1.entries.insert(
+            0,
+            Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        m2.entries.insert(
+            0,
+            Entry {
+                clock: m2.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        let diff = m1.diff(&m2.clock);
+        assert_eq!(diff.entries.len(), 0);
+
+        let diff = m2.diff(&m1.clock);
+        assert_eq!(diff.entries.len(), 0);
+
+        m1.clock.apply(m1.clock.inc(1));
+        m2.clock.apply(m2.clock.inc(2));
+
+        m1.entries.insert(
+            1,
+            Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        m2.entries.insert(
+            0,
+            Entry {
+                clock: m2.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        let diff = m1.diff(&m2.clock);
+        assert_eq!(diff.entries.len(), 1);
+        println!("{:?}", diff);
+        assert_eq!(
+            diff.entries.get(&1),
+            Some(&Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            })
+        );
+
+        let diff2 = m2.diff(&m1.clock);
+        assert_eq!(diff2.entries.len(), 1);
+        assert_eq!(
+            diff2.entries.get(&0),
+            Some(&Entry {
+                clock: m2.clock.clone(),
+                val: Map::default(),
+            })
+        );
+
+        println!("m2 pre merge: {:?}", m2);
+        m2.merge_delta(diff);
+        println!("m2 post merge: {:?}", m2);
+
+        assert_eq!(m2.entries.len(), 2);
+        assert_eq!(
+            m2.entries.get(&1),
+            Some(&Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            })
+        );
+        assert_eq!(
+            m2.entries.get(&0),
+            Some(&Entry {
+                clock: VClock::from_iter(vec![Dot::new(1, 1), Dot::new(2, 1)]),
+                val: Map::default(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_diff_with_removals() {
+        let mut m1: TestMap = Map::new();
+        let mut m2: TestMap = Map::new();
+
+        m1.clock.apply(m1.clock.inc(1));
+        m2.clock.apply(m2.clock.inc(1));
+
+        m1.entries.insert(
+            0,
+            Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        m2.entries.insert(
+            0,
+            Entry {
+                clock: m2.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        let diff = m1.diff(&m2.clock);
+        assert_eq!(diff.entries.len(), 0);
+
+        let diff = m2.diff(&m1.clock);
+        assert_eq!(diff.entries.len(), 0);
+
+        m1.clock.apply(m1.clock.inc(1));
+        m2.clock.apply(m2.clock.inc(2));
+
+        m1.entries.insert(
+            1,
+            Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        m2.entries.insert(
+            0,
+            Entry {
+                clock: m2.clock.clone(),
+                val: Map::default(),
+            },
+        );
+
+        let diff = m1.diff(&m2.clock);
+        assert_eq!(diff.entries.len(), 1);
+        assert_eq!(
+            diff.entries.get(&1),
+            Some(&Entry {
+                clock: m1.clock.clone(),
+                val: Map::default(),
+            })
+        );
+
+        let diff2 = m2.diff(&m1.clock);
+        assert_eq!(diff2.entries.len(), 1);
+        assert_eq!(
+            diff2.entries.get(&0),
+            Some(&Entry {
+                clock: m2.clock.clone(),
+                val: Map::default(),
+            })
+        );
+
+        m2.merge_delta(diff);
+
+        println!("m1 pre rm: {:?}", m1);
+
+        m1.apply(Op::Rm {
+            clock: Dot::new(1, 2).into(),
+            key: 1,
+        });
+
+        println!("m1 post rm: {:?}", m1);
+
+        let diff = m1.diff(&m2.clock);
+        assert_eq!(diff.entries.len(), 1);
+        assert_eq!(
+            diff.entries.get(&1),
+            Some(&Entry {
+                clock: Dot::new(1, 1).into(),
+                val: Map::default(),
+            })
+        );
+
+        println!("m2 pre merge: {:?}", m2);
+        m2.merge_delta(diff);
+        println!("m2 post merge: {:?}", m2);
+
+        assert_eq!(m2.entries.len(), 2);
+        assert_eq!(
+            m2.entries.get(&1),
+            Some(&Entry {
+                clock: Dot::new(1, 1).into(),
+                val: Map::default(),
+            })
+        );
     }
 }
