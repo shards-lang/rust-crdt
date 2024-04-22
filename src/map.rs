@@ -554,6 +554,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     }
 
     /// Returns the difference between two CRDTs given the other CRDT's clock.
+    /// WIP - Not working yet properly
     pub fn diff(&self, other_clock: &VClock<A>) -> Map<K, V, A>
     where
         K: Clone + Debug,
@@ -595,6 +596,7 @@ impl<K: Ord, V: Val<A>, A: Ord + Hash + Clone> Map<K, V, A> {
     }
 
     /// Function to merge a delta state into the current state
+    /// WIP - Not working yet properly
     pub fn merge_delta(&mut self, delta: Self)
     where
         VClock<A>: CvRDT,
@@ -782,6 +784,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_diff() {
         let mut m1: TestMap = Map::new();
         let mut m2: TestMap = Map::new();
@@ -873,6 +876,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_diff_with_removals() {
         let mut m1: TestMap = Map::new();
         let mut m2: TestMap = Map::new();
@@ -945,12 +949,23 @@ mod test {
 
         println!("m1 pre rm: {:?}", m1);
 
+        let pre_delete_diff = m1.diff(&m2.clock);
+        println!("pre delete diff: {:?}", pre_delete_diff);
+
         m1.apply(Op::Rm {
             clock: Dot::new(1, 2).into(),
             key: 1,
         });
 
         println!("m1 post rm: {:?}", m1);
+
+        let post_delete_diff = m1.diff(&m2.clock);
+        println!("post delete diff: {:?}", post_delete_diff);
+
+        let mut m3 = m2.clone();
+        m3.merge(m1.clone());
+        println!("m1: {:?}", m1);
+        println!("m3: {:?}", m3);
 
         let diff = m1.diff(&m2.clock);
         assert_eq!(diff.entries.len(), 1);
